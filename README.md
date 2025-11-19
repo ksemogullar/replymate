@@ -1,36 +1,151 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ReplyMate
 
-## Getting Started
+**AI-Powered Google Review Management Platform**
 
-First, run the development server:
+---
+
+## 🎯 What is ReplyMate?
+
+ReplyMate is a SaaS platform that helps businesses and agencies manage their Google Business reviews efficiently using AI-powered response generation, Chrome Extension integration, and advanced analytics.
+
+---
+
+## 🚀 Key Features
+
+- **AI Response Generator** - Generate professional responses in multiple languages and tones, store template libraries, and let AI pre-fill review replies.
+- **Chrome Extension** - One-click response filling directly in Google Business dashboard
+- **WhatsApp Notifications** - Get instant alerts for new reviews with AI-suggested responses
+- **Analytics Dashboard** - Sentiment analysis, rating trends, and keyword insights
+- **Competitor Analysis** - Benchmark against competitors
+- **Multi-Business Management** - Perfect for agencies managing multiple clients
+- **Auto-Toxic Filter** - AI flags spam, threats, and inappropriate reviews
+
+---
+
+## 📚 Documentation
+
+- [Product Specification](./PRODUCT_SPEC.md) - Complete feature and technical documentation
+- [Database Schema](./DATABASE_SCHEMA.md) - Database structure and relationships (coming soon)
+- [Development Roadmap](./ROADMAP.md) - MVP phases and timeline
+
+---
+
+## 🛠️ Tech Stack
+
+**Frontend:**
+- Next.js 14 (App Router)
+- Tailwind CSS
+- TypeScript
+- React Query
+
+**Backend:**
+- Next.js API Routes
+- Supabase (PostgreSQL)
+- Google Places API
+- Gemini AI
+
+**Chrome Extension:**
+- Manifest V3
+- TypeScript
+
+**Integrations:**
+- Stripe (Payments)
+- WhatsApp Cloud API (Notifications)
+- Google Places API (Reviews)
+
+---
+
+## 🏃 Getting Started
+
+### Prerequisites
+- Node.js 18+
+- npm or yarn
+- Supabase account
+- Google Cloud account (Places API)
+- Gemini API key
+
+### Installation
 
 ```bash
+# Install dependencies
+npm install
+
+# Setup environment variables
+cp .env.example .env.local
+# Edit .env.local with your credentials
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 📝 Environment Variables
 
-## Learn More
+```env
+# Gemini AI
+GEMINI_API_KEY=your_gemini_api_key
 
-To learn more about Next.js, take a look at the following resources:
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Google Places API
+GOOGLE_PLACES_API_KEY=your_google_places_key
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Stripe (optional for MVP)
+STRIPE_SECRET_KEY=your_stripe_secret
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your_stripe_public
 
-## Deploy on Vercel
+# WhatsApp (optional for MVP)
+WHATSAPP_API_TOKEN=your_whatsapp_token
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🗂️ Project Structure
+
+```
+replymate-new/
+├── app/                    # Next.js app directory
+│   ├── api/               # API routes
+│   ├── dashboard/         # Dashboard pages
+│   ├── auth/              # Authentication pages
+│   └── page.tsx           # Landing page
+├── components/            # React components
+├── lib/                   # Utility functions
+├── chrome-extension/      # Chrome extension source (coming soon)
+├── PRODUCT_SPEC.md        # Product specification
+└── ROADMAP.md             # Development roadmap
+```
+
+---
+
+## 🎯 MVP Timeline
+
+**Phase 1 (Week 1-2):** Authentication + Dashboard setup
+**Phase 2 (Week 3-4):** Google Places integration + AI responses
+**Phase 3 (Week 5-6):** Chrome Extension
+**Phase 4 (Week 7-8):** Analytics + WhatsApp notifications
+
+See [ROADMAP.md](./ROADMAP.md) for detailed timeline.
+
+---
+
+## 💳 Pricing Plans (Planned)
+
+- **Starter** ($19/mo) - 1 business, 100 reviews/month
+- **Pro** ($49/mo) - Unlimited reviews, analytics, WhatsApp
+- **Agency** ($99/mo) - Multiple businesses, competitor analysis, white-label
+
+---
+
+## 📧 Contact
+
+For questions or support, contact: [your-email@example.com]
+
+---
+
+**Built with ❤️ by the ReplyMate Team**
