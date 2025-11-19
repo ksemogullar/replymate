@@ -1,24 +1,26 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useTranslation } from "@/lib/i18n/useTranslation";
 
 export default function SignupPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState(false)
-  const router = useRouter()
-  const supabase = createClient()
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const router = useRouter();
+  const { t } = useTranslation();
+  const supabase = createClient();
 
   const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setLoading(true)
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
 
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -29,61 +31,71 @@ export default function SignupPage() {
             full_name: fullName,
           },
         },
-      })
+      });
 
-      if (error) throw error
+      if (error) throw error;
 
-      setSuccess(true)
+      setSuccess(true);
 
       // If email confirmation is disabled, redirect to dashboard
       if (data.session) {
-        router.push('/dashboard')
-        router.refresh()
+        router.push("/dashboard");
+        router.refresh();
       }
     } catch (error: any) {
-      setError(error.message)
+      setError(error.message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleGoogleSignup = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
         },
-      })
+      });
 
-      if (error) throw error
+      if (error) throw error;
     } catch (error: any) {
-      setError(error.message)
+      setError(error.message);
     }
-  }
+  };
 
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            <svg
+              className="w-8 h-8 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Kayıt Başarılı!</h2>
-          <p className="text-gray-600 mb-6">
-            Email adresinizi kontrol edin ve hesabınızı doğrulayın.
-          </p>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            {t.auth.signupSuccess}
+          </h2>
+          <p className="text-gray-600 mb-6">{t.auth.checkEmailVerification}</p>
           <Link
             href="/auth/login"
             className="inline-block bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-blue-700 transition"
           >
-            Giriş Sayfasına Dön
+            {t.auth.backToLogin}
           </Link>
         </div>
       </div>
-    )
+    );
   }
 
   return (
@@ -91,7 +103,7 @@ export default function SignupPage() {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">ReplyMate</h1>
-          <p className="text-gray-600">Ücretsiz hesap oluşturun</p>
+          <p className="text-gray-600">{t.auth.createFreeAccount}</p>
         </div>
 
         {error && (
@@ -102,8 +114,11 @@ export default function SignupPage() {
 
         <form onSubmit={handleSignup} className="space-y-4">
           <div>
-            <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
-              Ad Soyad
+            <label
+              htmlFor="fullName"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              {t.auth.fullName}
             </label>
             <input
               id="fullName"
@@ -112,13 +127,16 @@ export default function SignupPage() {
               onChange={(e) => setFullName(e.target.value)}
               required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-              placeholder="Ahmet Yılmaz"
+              placeholder={t.auth.fullNamePlaceholder}
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-              Email
+            <label
+              htmlFor="email"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              {t.auth.email}
             </label>
             <input
               id="email"
@@ -127,13 +145,16 @@ export default function SignupPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-              placeholder="ornek@email.com"
+              placeholder={t.auth.emailPlaceholder}
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              Şifre
+            <label
+              htmlFor="password"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
+              {t.auth.password}
             </label>
             <input
               id="password"
@@ -143,7 +164,7 @@ export default function SignupPage() {
               required
               minLength={6}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-              placeholder="En az 6 karakter"
+              placeholder={t.auth.minPasswordLength}
             />
           </div>
 
@@ -152,7 +173,7 @@ export default function SignupPage() {
             disabled={loading}
             className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Hesap oluşturuluyor...' : 'Kayıt Ol'}
+            {loading ? t.auth.creatingAccount : t.auth.signup}
           </button>
         </form>
 
@@ -162,7 +183,9 @@ export default function SignupPage() {
               <div className="w-full border-t border-gray-300"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">veya</span>
+              <span className="px-2 bg-white text-gray-500">
+                {t.auth.orContinueWith}
+              </span>
             </div>
           </div>
 
@@ -188,17 +211,20 @@ export default function SignupPage() {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            Google ile Kayıt Ol
+            {t.auth.signUpWithGoogle}
           </button>
         </div>
 
         <p className="mt-6 text-center text-sm text-gray-600">
-          Zaten hesabınız var mı?{' '}
-          <Link href="/auth/login" className="text-blue-600 hover:text-blue-700 font-medium">
-            Giriş Yapın
+          {t.auth.alreadyHaveAccount}{" "}
+          <Link
+            href="/auth/login"
+            className="text-blue-600 hover:text-blue-700 font-medium"
+          >
+            {t.auth.loginNow}
           </Link>
         </p>
       </div>
     </div>
-  )
+  );
 }

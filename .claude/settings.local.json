@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(app/dashboard/page.tsx)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

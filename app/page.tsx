@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { localeLabels, Locale, SUPPORTED_LOCALES } from '@/lib/i18n/locales'
 import { useLocale } from '@/context/LocaleContext'
+import { useTranslation } from '@/lib/i18n/useTranslation'
 
 const demoLanguages = ['Türkçe', 'İngilizce', 'Felemenkçe']
 const tones = ['Profesyonel', 'Samimi', 'Kısa', 'Detaylı']
@@ -348,6 +349,7 @@ const translations: Record<Locale, {
 
 export default function Home() {
   const { locale, setLocale } = useLocale()
+  const { t: tMain } = useTranslation()
   const [review, setReview] = useState('')
   const [language, setLanguage] = useState(demoLanguages[0])
   const [tone, setTone] = useState(tones[0])
@@ -361,7 +363,7 @@ export default function Home() {
     setReply('')
 
     if (!review.trim()) {
-      setErrorMsg('Önce bir müşteri yorumu gir.')
+      setErrorMsg(tMain.landing.enterReviewFirst)
       return
     }
 
@@ -377,7 +379,7 @@ export default function Home() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setErrorMsg(data.error || 'Bir hata oluştu.')
+        setErrorMsg(data.error || tMain.landing.genericError)
         return
       }
 
@@ -385,7 +387,7 @@ export default function Home() {
       setReply(data.reply || '')
     } catch (err: any) {
       console.error(err)
-      setErrorMsg('Sunucuya bağlanırken bir sorun oluştu.')
+      setErrorMsg(tMain.landing.connectionError)
     } finally {
       setLoading(false)
     }
@@ -395,9 +397,9 @@ export default function Home() {
     if (!reply) return
     try {
       await navigator.clipboard.writeText(reply)
-      alert('Cevap panoya kopyalandı ✅')
+      alert(tMain.landing.copiedToClipboard)
     } catch {
-      alert('Kopyalanamadı, elle seçip kopyalayabilirsin.')
+      alert(tMain.landing.copyFailed)
     }
   }
 
@@ -408,23 +410,23 @@ export default function Home() {
           <div className="font-semibold">ReplyMate</div>
           <nav className="hidden gap-6 md:flex">
             <a href="#features" className="text-slate-400 hover:text-white">
-              Özellikler
+              {tMain.landing.features}
             </a>
             <a href="#workflow" className="text-slate-400 hover:text-white">
-              Akış
+              {tMain.landing.workflow}
             </a>
             <a href="#pricing" className="text-slate-400 hover:text-white">
-              Fiyatlandırma
+              {tMain.landing.pricing}
             </a>
             <a href="#demo" className="text-slate-400 hover:text-white">
-              Demo
+              {tMain.landing.demo}
             </a>
           </nav>
           <a
             href="/auth/login"
             className="rounded-full border border-slate-700 px-4 py-1.5 text-xs font-semibold text-slate-200"
           >
-            Giriş Yap
+            {tMain.landing.login}
           </a>
         </div>
       </div>
@@ -509,7 +511,7 @@ export default function Home() {
 
         <section className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-3xl border border-slate-800 bg-gradient-to-br from-sky-500/10 via-indigo-500/5 to-purple-500/10 p-8">
-            <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Kullanım Senaryosu</p>
+            <p className="text-sm uppercase tracking-[0.3em] text-slate-400">{tMain.landing.useCaseLabel}</p>
             <h3 className="mt-3 text-2xl font-semibold">Tattoo stüdyosu 2 ayda 320 yorumu yönetti</h3>
             <p className="mt-3 text-sm text-slate-200">
               ReplyMate ile Up Ink Tattoo Amsterdam tüm Google yorumlarını tek panelde topladı ve ortalama yanıt süresini 4 saate düşürdü.
@@ -529,7 +531,7 @@ export default function Home() {
             </div>
           </div>
           <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-8">
-            <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Ekran Görüntüsü</p>
+            <p className="text-sm uppercase tracking-[0.3em] text-slate-400">{tMain.landing.screenshotLabel}</p>
             <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/80 p-5 shadow-inner">
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span>replymate-dashboard.dev</span>
@@ -581,7 +583,7 @@ export default function Home() {
             <h3 className="mt-1 text-2xl font-semibold">{t.demoTitle}</h3>
             <p className="mt-2 text-sm text-slate-400">{t.demoDescription}</p>
 
-            <label className="mt-6 block text-sm font-medium text-slate-200">Müşteri Yorumu</label>
+            <label className="mt-6 block text-sm font-medium text-slate-200">{tMain.landing.customerReviewLabel}</label>
             <textarea
               value={review}
               onChange={(e) => setReview(e.target.value)}
@@ -592,7 +594,7 @@ export default function Home() {
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium text-slate-200">Dil</label>
+                <label className="text-sm font-medium text-slate-200">{tMain.landing.languageLabel}</label>
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
@@ -606,7 +608,7 @@ export default function Home() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-200">Ton</label>
+                <label className="text-sm font-medium text-slate-200">{tMain.landing.toneLabel}</label>
                 <select
                   value={tone}
                   onChange={(e) => setTone(e.target.value)}
@@ -626,7 +628,7 @@ export default function Home() {
               disabled={loading}
               className="mt-6 w-full rounded-full bg-gradient-to-r from-sky-400 via-indigo-400 to-pink-500 px-6 py-3 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {loading ? 'Cevap üretiliyor...' : t.demoButton}
+              {loading ? tMain.landing.generating : t.demoButton}
             </button>
 
             {errorMsg && <p className="mt-3 text-sm text-rose-300">{t.demoError}</p>}
@@ -639,7 +641,7 @@ export default function Home() {
                     onClick={handleCopy}
                     className="text-xs font-semibold text-sky-300 hover:text-sky-200"
                   >
-                    Kopyala
+                    {tMain.landing.copy}
                   </button>
                 </div>
                 <p className="mt-2 text-sm text-slate-300 whitespace-pre-wrap">{reply}</p>
@@ -688,7 +690,7 @@ export default function Home() {
 
         <section className="rounded-3xl border border-slate-800 bg-slate-900/70 px-8 py-12">
           <p className="text-center text-sm uppercase tracking-[0.3em] text-slate-400">FAQ</p>
-          <h3 className="mt-4 text-center text-3xl font-semibold">Sıkça Sorulan Sorular</h3>
+          <h3 className="mt-4 text-center text-3xl font-semibold">{tMain.landing.faqTitle}</h3>
           <div className="mt-8 space-y-4">
             {t.faq.map((item) => (
               <details
