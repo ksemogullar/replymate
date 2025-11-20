@@ -181,7 +181,8 @@ CREATE TABLE reviews (
   review_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
   fetched_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE (business_id, google_review_id)
 );
 
 -- RLS Policies

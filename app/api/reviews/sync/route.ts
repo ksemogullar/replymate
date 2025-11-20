@@ -248,7 +248,7 @@ function normalizeRating(starRating: string) {
 }
 
 export async function POST(request: Request) {
-  const supabase = createClient();
+  const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -381,10 +381,18 @@ export async function POST(request: Request) {
         ...r,
         business_id: business.id,
       }));
+
+      const uniqueReviewsMap = new Map<string, (typeof reviewsToInsert)[0]>();
+      for (const review of reviewsToInsert) {
+        const key = `${review.business_id}:${review.google_review_id}`;
+        uniqueReviewsMap.set(key, review);
+      }
+      const uniqueReviews = Array.from(uniqueReviewsMap.values());
+
       const { error: upsertError } = await supabase
         .from("reviews")
-        .upsert(reviewsToInsert, {
-          onConflict: "google_review_id, business_id",
+        .upsert(uniqueReviews, {
+          onConflict: "business_id, google_review_id",
         });
 
       if (upsertError) {

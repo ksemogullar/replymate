@@ -272,9 +272,14 @@ export async function POST(request: Request) {
     }
 
     // Post reply to Google
+    // Ensure we have the full location path (accounts/XXX/locations/YYY)
+    const fullLocationPath = googleLocation.locationName.startsWith('accounts/')
+      ? googleLocation.locationName
+      : `${googleLocation.accountName}/${googleLocation.locationName}`
+
     await postReplyToGoogle({
       accessToken,
-      locationName: googleLocation.locationName,
+      locationName: fullLocationPath,
       reviewId,
       replyText,
     })
