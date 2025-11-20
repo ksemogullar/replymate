@@ -188,6 +188,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [disconnectingGoogle, setDisconnectingGoogle] = useState(false);
 
   // Reviews
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -196,6 +197,11 @@ export default function Dashboard() {
   const [replyFilter, setReplyFilter] = useState<
     "all" | "replied" | "unreplied"
   >("all");
+  const [reviewSort, setReviewSort] = useState<
+    "newest" | "oldest" | "highest" | "lowest" | "unreplied"
+  >("newest");
+  const [reviewPage, setReviewPage] = useState(1);
+  const [reviewsPerPage, setReviewsPerPage] = useState(10);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -472,6 +478,10 @@ export default function Dashboard() {
     }
   }, [selectedBusiness, businesses]);
 
+  useEffect(() => {
+    setReviewPage(1);
+  }, [searchTerm, ratingFilter, replyFilter, reviewSort, reviewsPerPage, reviews]);
+
   const loadData = async () => {
     try {
       const {
@@ -491,6 +501,18 @@ export default function Dashboard() {
         .single();
 
       setProfile(profileData);
+
+      const { data: googleConnection, error: googleConnectionError } =
+        await supabase
+          .from("google_connections")
+          .select("id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+      if (googleConnectionError) {
+        console.error("Google connection check failed:", googleConnectionError);
+      }
+      setGoogleConnected(!!googleConnection);
 
       const { data: businessesData } = await supabase
         .from("businesses")
@@ -530,6 +552,13 @@ export default function Dashboard() {
 
   const handleSyncReviews = async () => {
     if (!selectedBusiness) return;
+    if (!googleConnected) {
+      setSyncStatus({
+        type: "warning",
+        text: "Tam senkronizasyon için önce Google hesabınızı bağlamalısınız.",
+      });
+      return;
+    }
 
     setSyncing(true);
     setSyncStatus(null);
@@ -580,6 +609,38 @@ export default function Dashboard() {
   const handleConnectGoogle = () => {
     if (typeof window === "undefined") return;
     window.location.href = "/api/google/authorize";
+  };
+
+  const handleDisconnectGoogle = async () => {
+    setDisconnectingGoogle(true);
+    setSyncStatus(null);
+    try {
+      const response = await fetch("/api/google/disconnect", {
+        method: "POST",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(
+          data.error || "Google bağlantısı kaldırılırken bir hata oluştu"
+        );
+      }
+
+      setGoogleConnected(false);
+      setSyncStatus({
+        type: "success",
+        text: "Google bağlantısı kaldırıldı.",
+      });
+    } catch (error: any) {
+      console.error("Google disconnect error:", error);
+      setSyncStatus({
+        type: "error",
+        text: error.message || "Google bağlantısı kaldırılamadı.",
+      });
+    } finally {
+      setDisconnectingGoogle(false);
+    }
   };
 
   const handleDeleteBusiness = async () => {
@@ -925,24 +986,126 @@ export default function Dashboard() {
     }
   };
 
-  const filteredReviews = reviews.filter((review) => {
-    if (
-      searchTerm &&
-      !review.text?.toLowerCase().includes(searchTerm.toLowerCase())
-    ) {
-      return false;
+  const filteredReviews = useMemo(() => {
+    return reviews.filter((review) => {
+      if (
+        searchTerm &&
+        !review.text?.toLowerCase().includes(searchTerm.toLowerCase())
+      ) {
+        return false;
+      }
+      if (ratingFilter !== "all" && review.rating !== ratingFilter) {
+        return false;
+      }
+      if (replyFilter === "replied" && !review.has_reply) {
+        return false;
+      }
+      if (replyFilter === "unreplied" && review.has_reply) {
+        return false;
+      }
+      return true;
+    });
+  }, [reviews, searchTerm, ratingFilter, replyFilter]);
+
+  const sortedReviews = useMemo(() => {
+    const sorted = [...filteredReviews];
+    switch (reviewSort) {
+      case "oldest":
+        sorted.sort(
+          (a, b) =>
+            new Date(a.review_created_at).getTime() -
+            new Date(b.review_created_at).getTime()
+        );
+        break;
+      case "highest":
+        sorted.sort((a, b) => b.rating - a.rating);
+        break;
+      case "lowest":
+        sorted.sort((a, b) => a.rating - b.rating);
+        break;
+      case "unreplied":
+        sorted.sort((a, b) => Number(a.has_reply) - Number(b.has_reply));
+        break;
+      case "newest":
+      default:
+        sorted.sort(
+          (a, b) =>
+            new Date(b.review_created_at).getTime() -
+            new Date(a.review_created_at).getTime()
+        );
+        break;
     }
-    if (ratingFilter !== "all" && review.rating !== ratingFilter) {
-      return false;
+    return sorted;
+  }, [filteredReviews, reviewSort]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sortedReviews.length / reviewsPerPage) || 1
+  );
+  const currentReviewPage = Math.min(reviewPage, totalPages);
+
+  const paginatedReviews = useMemo(() => {
+    const start = (currentReviewPage - 1) * reviewsPerPage;
+    return sortedReviews.slice(start, start + reviewsPerPage);
+  }, [sortedReviews, currentReviewPage, reviewsPerPage]);
+
+  const respondedCount = useMemo(
+    () => reviews.filter((review) => review.has_reply).length,
+    [reviews]
+  );
+
+  const pendingReplies = useMemo(
+    () => reviews.filter((review) => !review.has_reply).length,
+    [reviews]
+  );
+
+  const newReviewsLast7Days = useMemo(() => {
+    const threshold = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return reviews.filter(
+      (review) => new Date(review.review_created_at).getTime() > threshold
+    ).length;
+  }, [reviews]);
+
+  const lowRatedPendingReviews = useMemo(
+    () =>
+      reviews
+        .filter((review) => !review.has_reply && review.rating <= 2)
+        .sort(
+          (a, b) =>
+            new Date(b.review_created_at).getTime() -
+            new Date(a.review_created_at).getTime()
+        ),
+    [reviews]
+  );
+
+  const averageRating = useMemo(() => {
+    if (reviews.length === 0) {
+      return currentBusiness?.rating ?? null;
     }
-    if (replyFilter === "replied" && !review.has_reply) {
-      return false;
-    }
-    if (replyFilter === "unreplied" && review.has_reply) {
-      return false;
-    }
-    return true;
-  });
+    const total = reviews.reduce((sum, review) => sum + review.rating, 0);
+    return total / reviews.length;
+  }, [reviews, currentBusiness]);
+
+  const responseRate =
+    reviews.length > 0 ? Math.round((respondedCount / reviews.length) * 100) : 0;
+
+  const totalReviewCountDisplay =
+    currentBusiness?.total_reviews || reviews.length;
+
+  const averageRatingDisplay =
+    typeof averageRating === "number"
+      ? averageRating.toFixed(1)
+      : currentBusiness?.rating?.toFixed(1) || "-";
+
+  const totalFilteredReviews = sortedReviews.length;
+  const paginationStart =
+    totalFilteredReviews === 0
+      ? 0
+      : (currentReviewPage - 1) * reviewsPerPage + 1;
+  const paginationEnd =
+    totalFilteredReviews === 0
+      ? 0
+      : Math.min(currentReviewPage * reviewsPerPage, totalFilteredReviews);
 
   if (loading) {
     return (
@@ -1070,204 +1233,514 @@ export default function Dashboard() {
         {/* Overview Tab */}
         {activeTab === "overview" && currentBusiness && (
           <div className="space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-4">
-                {currentBusiness.name}
-              </h2>
-              <p className="text-sm text-gray-600 mb-4">
-                {currentBusiness.address}
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">
-                    {t.competitors.rating}
+            <section className="bg-gradient-to-br from-blue-600 via-blue-600 to-indigo-700 rounded-2xl shadow-lg text-white p-6">
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-blue-200">
+                    {t.analytics.overview}
                   </p>
-                  <p className="text-3xl font-bold text-gray-900">
-                    {currentBusiness.rating?.toFixed(1) || "-"}
+                  <h2 className="text-3xl font-bold mt-2">
+                    {currentBusiness.name}
+                  </h2>
+                  <p className="text-sm text-blue-100 mt-1">
+                    {currentBusiness.address}
                   </p>
+                  <div className="flex flex-wrap items-center gap-3 mt-4 text-sm">
+                    <span className="flex items-center gap-2 text-blue-100">
+                      <span>🕒</span>
+                      {currentBusiness.last_sync_at
+                        ? `Son senkron: ${formatDateTime(currentBusiness.last_sync_at)}`
+                        : t.dashboard.noSyncYet}
+                    </span>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        googleConnected
+                          ? "bg-white/20 text-white"
+                          : "bg-amber-200 text-amber-900"
+                      }`}
+                    >
+                      {googleConnected
+                        ? "Google bağlı"
+                        : "Google bağlantısı yok"}
+                    </span>
+                  </div>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={handleSyncReviews}
+                    disabled={syncing || !googleConnected}
+                    className="px-4 py-2 bg-white text-blue-700 rounded-lg text-sm font-semibold shadow hover:bg-blue-50 disabled:opacity-60 flex items-center gap-2"
+                  >
+                    {syncing ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        {t.dashboard.syncing}
+                      </>
+                    ) : (
+                      <>
+                        <span>⟳</span>
+                        {t.dashboard.syncReviews}
+                      </>
+                    )}
+                  </button>
+                  {googleConnected ? (
+                    <button
+                      onClick={handleDisconnectGoogle}
+                      disabled={disconnectingGoogle}
+                      className="px-4 py-2 bg-white/10 text-white border border-white/40 rounded-lg text-sm font-medium hover:bg-white/20 disabled:opacity-60"
+                    >
+                      {disconnectingGoogle ? "Kaldırılıyor..." : "Google bağlantısını kaldır"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleConnectGoogle}
+                      className="px-4 py-2 bg-white/10 text-white border border-white/40 rounded-lg text-sm font-medium hover:bg-white/20"
+                    >
+                      Google Hesabını Bağla
+                    </button>
+                  )}
+                  <button
+                    onClick={handleDeleteBusiness}
+                    disabled={deleting}
+                    className="px-4 py-2 border border-white/30 text-white/90 rounded-lg text-sm font-medium hover:bg-white/10 disabled:opacity-60"
+                  >
+                    {deleting ? "Siliniyor..." : "İşletmeyi Sil"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-6">
+                <div className="bg-white/10 border border-white/20 rounded-xl p-4">
+                  <p className="text-xs uppercase tracking-wide text-blue-100">
                     {t.dashboard.totalReviews}
                   </p>
-                  <p className="text-3xl font-bold text-gray-900">
-                    {currentBusiness.total_reviews || 0}
+                  <p className="text-2xl font-semibold mt-2">
+                    {totalReviewCountDisplay || 0}
+                  </p>
+                  <p className="text-xs text-blue-100 mt-1">
+                    Güncel toplam yorum
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">
-                    {t.analytics.responded}
+                <div className="bg-white/10 border border-white/20 rounded-xl p-4">
+                  <p className="text-xs uppercase tracking-wide text-blue-100">
+                    {t.dashboard.averageRating}
                   </p>
-                  <p className="text-3xl font-bold text-gray-900">
-                    {reviews.filter((r) => r.has_reply).length}
+                  <p className="text-2xl font-semibold mt-2">
+                    {averageRatingDisplay}
+                  </p>
+                  <p className="text-xs text-blue-100 mt-1">5 üzerinden</p>
+                </div>
+                <div className="bg-white/10 border border-white/20 rounded-xl p-4">
+                  <p className="text-xs uppercase tracking-wide text-blue-100">
+                    {t.analytics.responseRate}
+                  </p>
+                  <p className="text-2xl font-semibold mt-2">{responseRate}%</p>
+                  <p className="text-xs text-blue-100 mt-1">
+                    {respondedCount} / {reviews.length || 0} yanıtlandı
+                  </p>
+                </div>
+                <div className="bg-white/10 border border-white/20 rounded-xl p-4">
+                  <p className="text-xs uppercase tracking-wide text-blue-100">
+                    Son 7 günde yeni yorum
+                  </p>
+                  <p className="text-2xl font-semibold mt-2">
+                    {newReviewsLast7Days}
+                  </p>
+                  <p className="text-xs text-blue-100 mt-1">
+                    Anlık takibi sürdür
                   </p>
                 </div>
               </div>
+            </section>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={handleSyncReviews}
-                  disabled={syncing}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2"
-                >
-                  {syncing ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      {t.dashboard.syncing}
-                    </>
-                  ) : (
-                    t.dashboard.syncReviews
-                  )}
-                </button>
-                {!googleConnected && (
-                  <button
-                    onClick={handleConnectGoogle}
-                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
-                  >
-                    Google Hesabını Bağla
-                  </button>
-                )}
-                <button
-                  onClick={handleDeleteBusiness}
-                  disabled={deleting}
-                  className="px-4 py-2 border border-rose-200 text-rose-600 rounded-lg text-sm font-medium hover:bg-rose-50 disabled:opacity-60"
-                >
-                  {deleting ? "Siliniyor..." : "İşletmeyi Sil"}
-                </button>
-              </div>
-            </div>
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="space-y-6 lg:col-span-2">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500 uppercase tracking-wide">
+                        Yanıt performansı
+                      </p>
+                      <h3 className="text-3xl font-bold text-gray-900 mt-1">
+                        {responseRate}%
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        {respondedCount} / {reviews.length || 0}{" "}
+                        {t.analytics.responded.toLowerCase()}
+                      </p>
+                    </div>
+                    <div className="w-full md:w-1/2">
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-2 bg-green-500 rounded-full transition-all"
+                          style={{ width: `${responseRate}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Hedefinize ulaşmak için yanıt oranınızı %90 üstünde tutun.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="border border-gray-100 rounded-xl p-4">
+                      <p className="text-sm text-gray-500">
+                        {t.dashboard.pendingReplies}
+                      </p>
+                      <p className="text-2xl font-semibold text-gray-900 mt-1">
+                        {pendingReplies}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Yanıt bekleyen yorum
+                      </p>
+                    </div>
+                    <div className="border border-gray-100 rounded-xl p-4">
+                      <p className="text-sm text-gray-500">
+                        Kritik yanıt kuyruğu
+                      </p>
+                      <p className="text-2xl font-semibold text-gray-900 mt-1">
+                        {lowRatedPendingReviews.length}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        1-2 ⭐ ve yanıtsız
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-            {/* Recent Reviews */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">
-                {t.dashboard.recentReviews}
-              </h3>
-              {reviewsLoading ? (
-                <p className="text-sm text-gray-500">{t.common.loading}</p>
-              ) : reviews.length === 0 ? (
-                <p className="text-sm text-gray-500">{t.dashboard.noReviews}</p>
-              ) : (
-                <div className="space-y-4">
-                  {reviews.slice(0, 5).map((review) => (
-                    <div
-                      key={review.id}
-                      className="border border-gray-200 rounded-lg p-4"
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">
+                        {t.dashboard.recentReviews}
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        Son senkronize edilen yorumlar
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab("reviews")}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                     >
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-sm font-semibold text-gray-600">
-                          {review.author_name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">
-                            {review.author_name}
-                          </p>
-                          <div className="flex items-center gap-2">
-                            <div className="flex">
-                              {Array.from({ length: 5 }).map((_, i) => (
-                                <span
-                                  key={i}
-                                  className={
-                                    i < review.rating
-                                      ? "text-yellow-400"
-                                      : "text-gray-300"
-                                  }
-                                >
-                                  ★
-                                </span>
-                              ))}
+                      Tüm yorumları görüntüle →
+                    </button>
+                  </div>
+                  {reviewsLoading ? (
+                    <p className="text-sm text-gray-500">{t.common.loading}</p>
+                  ) : reviews.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      {t.dashboard.noReviews}
+                    </p>
+                  ) : (
+                    <div className="space-y-4 mt-4">
+                      {reviews.slice(0, 5).map((review) => (
+                        <div
+                          key={review.id}
+                          className="border border-gray-100 rounded-xl p-4"
+                        >
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-sm font-semibold text-gray-600">
+                              {review.author_name.charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-xs text-gray-500">
-                              {formatDate(review.review_created_at)}
+                            <div>
+                              <p className="font-medium text-gray-900">
+                                {review.author_name}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <div className="flex">
+                                  {Array.from({ length: 5 }).map((_, i) => (
+                                    <span
+                                      key={i}
+                                      className={
+                                        i < review.rating
+                                          ? "text-yellow-400"
+                                          : "text-gray-300"
+                                      }
+                                    >
+                                      ★
+                                    </span>
+                                  ))}
+                                </div>
+                                <span className="text-xs text-gray-500">
+                                  {formatDate(review.review_created_at)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-700">
+                            {review.text || "Metin bulunmuyor."}
+                          </p>
+                          {!review.has_reply && (
+                            <button
+                              onClick={() => handleOpenAiModal(review)}
+                              className="mt-3 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            >
+                              {t.reviews.aiGenerateReply}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900">
+                        Kritik yanıt kuyruğu
+                      </h3>
+                      <p className="text-sm text-gray-500">
+                        1-2 yıldızlı ve yanıtsız yorumlar
+                      </p>
+                    </div>
+                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-rose-50 text-rose-600">
+                      {lowRatedPendingReviews.length}
+                    </span>
+                  </div>
+                  {lowRatedPendingReviews.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      {t.analytics.allNegativeReplied}
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {lowRatedPendingReviews.slice(0, 4).map((review) => (
+                        <div
+                          key={review.id}
+                          className="border border-rose-100 rounded-xl p-4"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <p className="font-semibold text-gray-900 text-sm">
+                                {review.author_name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {formatDate(review.review_created_at)}
+                              </p>
+                            </div>
+                            <span className="text-sm font-semibold text-rose-600">
+                              {review.rating} ★
                             </span>
                           </div>
+                          <p className="text-sm text-gray-700">
+                            {review.text || "Metin bulunamadı."}
+                          </p>
+                          <button
+                            onClick={() => handleOpenAiModal(review)}
+                            className="mt-3 text-xs font-medium text-rose-600 hover:text-rose-700"
+                          >
+                            Hemen yanıtla →
+                          </button>
                         </div>
-                      </div>
-                      <p className="text-sm text-gray-700">{review.text}</p>
-                      {!review.has_reply && (
-                        <button
-                          onClick={() => handleOpenAiModal(review)}
-                          className="mt-2 px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                        >
-                          {t.reviews.aiGenerateReply}
-                        </button>
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
+
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-lg font-bold text-gray-900">
+                    Hızlı aksiyonlar
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    Günlük işlerini kolaylaştıran kısa yollar
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    <button
+                      onClick={() => setActiveTab("templates")}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-left hover:border-blue-300 hover:text-blue-700"
+                    >
+                      ✍️ Yeni şablon oluştur
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("analytics")}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-left hover:border-blue-300 hover:text-blue-700"
+                    >
+                      📈 Analitikleri görüntüle
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("settings")}
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-left hover:border-blue-300 hover:text-blue-700"
+                    >
+                      ⚙️ İşletme ayarlarını düzenle
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
 
         {/* Reviews Tab */}
         {activeTab === "reviews" && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900">
-                {t.reviews.title}
-              </h2>
-              <button
-                onClick={handleSyncReviews}
-                disabled={syncing}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60"
-              >
-                {syncing ? t.dashboard.syncing : t.reviews.refresh}
-              </button>
+          <div className="bg-gradient-to-br from-white to-gray-50 rounded-2xl shadow-lg border-2 border-gray-200 p-6 space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wider font-bold text-blue-600">
+                  {t.reviews.title}
+                </p>
+                <h2 className="text-3xl font-black text-gray-900 mt-1">
+                  {currentBusiness?.name} yorumları
+                </h2>
+                <div className="flex items-center gap-3 mt-2">
+                  <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-bold">
+                    {totalFilteredReviews} yorum
+                  </span>
+                  <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full text-sm font-bold">
+                    {pendingReplies} yanıt bekleyen
+                  </span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleSyncReviews}
+                  disabled={syncing}
+                  className="px-5 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 disabled:opacity-60 flex items-center gap-2 shadow-md hover:shadow-lg transition-all"
+                >
+                  {syncing ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      {t.dashboard.syncing}
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      {t.reviews.refresh}
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Filters */}
-            <div className="grid gap-4 md:grid-cols-3 mb-6">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder={t.reviews.searchPlaceholder}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              />
-              <select
-                value={ratingFilter}
-                onChange={(e) =>
-                  setRatingFilter(
-                    e.target.value === "all" ? "all" : Number(e.target.value)
-                  )
-                }
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">{t.reviews.allRatings}</option>
-                <option value="5">5 {t.reviews.starRating}</option>
-                <option value="4">4 {t.reviews.starRating}</option>
-                <option value="3">3 {t.reviews.starRating}</option>
-                <option value="2">2 {t.reviews.starRating}</option>
-                <option value="1">1 {t.reviews.starRating}</option>
-              </select>
-              <select
-                value={replyFilter}
-                onChange={(e) =>
-                  setReplyFilter(
-                    e.target.value as "all" | "replied" | "unreplied"
-                  )
-                }
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">{t.reviews.allReviews}</option>
-                <option value="unreplied">{t.reviews.unreplied}</option>
-                <option value="replied">{t.reviews.replied}</option>
-              </select>
+            <div className="bg-white rounded-xl p-4 border-2 border-gray-200 shadow-sm">
+              <div className="grid gap-3 lg:grid-cols-5">
+                <div className="lg:col-span-2">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder={t.reviews.searchPlaceholder}
+                    className="w-full px-4 py-2.5 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                  />
+                </div>
+                <select
+                  value={ratingFilter}
+                  onChange={(e) =>
+                    setRatingFilter(
+                      e.target.value === "all" ? "all" : Number(e.target.value)
+                    )
+                  }
+                  className="px-4 py-2.5 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                >
+                  <option value="all">{t.reviews.allRatings}</option>
+                  <option value="5">⭐ 5 {t.reviews.starRating}</option>
+                  <option value="4">⭐ 4 {t.reviews.starRating}</option>
+                  <option value="3">⭐ 3 {t.reviews.starRating}</option>
+                  <option value="2">⭐ 2 {t.reviews.starRating}</option>
+                  <option value="1">⭐ 1 {t.reviews.starRating}</option>
+                </select>
+                <select
+                  value={replyFilter}
+                  onChange={(e) =>
+                    setReplyFilter(
+                      e.target.value as "all" | "replied" | "unreplied"
+                    )
+                  }
+                  className="px-4 py-2.5 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                >
+                  <option value="all">{t.reviews.allReviews}</option>
+                  <option value="unreplied">⏱️ {t.reviews.unreplied}</option>
+                  <option value="replied">✅ {t.reviews.replied}</option>
+                </select>
+                <select
+                  value={reviewSort}
+                  onChange={(e) =>
+                    setReviewSort(
+                      e.target.value as
+                        | "newest"
+                        | "oldest"
+                        | "highest"
+                        | "lowest"
+                        | "unreplied"
+                    )
+                  }
+                  className="px-4 py-2.5 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                >
+                  <option value="newest">🕐 En yeni</option>
+                  <option value="oldest">🕑 En eski</option>
+                  <option value="highest">📈 Puan (yüksek → düşük)</option>
+                  <option value="lowest">📉 Puan (düşük → yüksek)</option>
+                  <option value="unreplied">⚠️ Yanıtsızlar üstte</option>
+                </select>
+                <select
+                  value={reviewsPerPage}
+                  onChange={(e) => setReviewsPerPage(Number(e.target.value))}
+                  className="px-4 py-2.5 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors"
+                >
+                  {[5, 10, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      📄 Sayfa başına {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-gray-500">
+              <p>
+                Gösterilen {paginationStart}-{paginationEnd} /{" "}
+                {totalFilteredReviews} yorum
+              </p>
+              <p>
+                {pendingReplies} yorum yanıt bekliyor, {lowRatedPendingReviews.length}{" "}
+                kritik
+              </p>
             </div>
 
             {/* Reviews List */}
             {reviewsLoading ? (
               <p className="text-sm text-gray-500">{t.common.loading}</p>
-            ) : filteredReviews.length === 0 ? (
+            ) : totalFilteredReviews === 0 ? (
               <p className="text-sm text-gray-500">
                 {t.reviews.noReviewsFound}
               </p>
             ) : (
               <div className="space-y-4">
-                {filteredReviews.map((review) => (
+                {paginatedReviews.map((review) => (
                   <ReviewReplyForm key={review.id} initialReview={review} />
                 ))}
+              </div>
+            )}
+
+            {totalFilteredReviews > 0 && (
+              <div className="pt-4 border-t border-gray-100 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-gray-500">
+                  Sayfa {currentReviewPage} / {totalPages}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() =>
+                      setReviewPage((prev) => Math.max(1, prev - 1))
+                    }
+                    disabled={currentReviewPage === 1}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    ← Önceki
+                  </button>
+                  <button
+                    onClick={() =>
+                      setReviewPage((prev) => Math.min(totalPages, prev + 1))
+                    }
+                    disabled={currentReviewPage === totalPages}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Sonraki →
+                  </button>
+                </div>
               </div>
             )}
           </div>

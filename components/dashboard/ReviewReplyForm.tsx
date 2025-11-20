@@ -215,32 +215,33 @@ export default function ReviewReplyForm({
   };
 
   return (
-    <div className="border border-gray-200 rounded-xl p-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-lg font-semibold text-gray-600">
+    <div className="bg-white border-2 border-gray-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-xl font-bold text-white shadow-md flex-shrink-0">
             {review.author_name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <p className="text-base font-semibold text-gray-900">
+            <p className="text-lg font-bold text-gray-900">
               {review.author_name}
             </p>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 mt-1">
               <div className="flex">
                 {Array.from({ length: 5 }).map((_, index) => (
                   <span
                     key={index}
-                    className={
+                    className={`text-xl ${
                       index < review.rating
-                        ? "text-yellow-400"
+                        ? "text-yellow-500"
                         : "text-gray-300"
-                    }
+                    }`}
                   >
                     ★
                   </span>
                 ))}
               </div>
-              <span>{formattedDate}</span>
+              <span className="text-sm font-medium text-gray-600">•</span>
+              <span className="text-sm font-medium text-gray-600">{formattedDate}</span>
             </div>
           </div>
         </div>
@@ -249,7 +250,7 @@ export default function ReviewReplyForm({
           <select
             value={selectedLanguage}
             onChange={(e) => setSelectedLanguage(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            className="px-3 py-2 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             {LANGUAGE_OPTIONS.map((option) => (
               <option key={option} value={option}>
@@ -260,7 +261,7 @@ export default function ReviewReplyForm({
           <select
             value={selectedTone}
             onChange={(e) => setSelectedTone(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            className="px-3 py-2 bg-white border-2 border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             {TONE_OPTIONS.map((option) => (
               <option key={option} value={option}>
@@ -271,21 +272,31 @@ export default function ReviewReplyForm({
         </div>
       </div>
 
-      <p className="mt-3 text-sm text-gray-700 whitespace-pre-line">
-        {review.text || t.reviews.noText}
-      </p>
+      <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <p className="text-base leading-relaxed text-gray-900 whitespace-pre-line font-medium">
+          {review.text || <span className="text-gray-500 italic">{t.reviews.noText}</span>}
+        </p>
+      </div>
 
-      <div className="mt-4">
-        <label className="text-sm font-medium text-gray-700 mb-2 block">
-          {review.has_reply
-            ? t.reviews.businessResponse
-            : t.reviews.generateReply}
+      <div className="mt-5">
+        <label className="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">
+          {review.has_reply ? (
+            <>
+              <span className="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+              {t.reviews.businessResponse}
+            </>
+          ) : (
+            <>
+              <span className="inline-block w-2 h-2 bg-orange-500 rounded-full"></span>
+              {t.reviews.generateReply}
+            </>
+          )}
         </label>
         <textarea
           value={replyText}
           onChange={(e) => setReplyText(e.target.value)}
-          rows={4}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+          rows={5}
+          className="w-full bg-white border-2 border-gray-300 rounded-lg px-4 py-3 text-base text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors"
           placeholder={t.reviews.generateReply}
         />
       </div>
@@ -294,20 +305,36 @@ export default function ReviewReplyForm({
         <button
           onClick={handleGenerateReply}
           disabled={generating}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          className="px-5 py-2.5 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all flex items-center gap-2"
         >
-          {generating ? t.reviews.generating : t.reviews.aiGenerateReply}
+          {generating ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              {t.reviews.generating}
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              {t.reviews.aiGenerateReply}
+            </>
+          )}
         </button>
         <button
           onClick={handleCopyReply}
-          className="px-4 py-2 border border-gray-300 text-sm rounded-lg hover:bg-gray-50"
+          disabled={!replyText.trim()}
+          className="px-5 py-2.5 bg-gray-100 border-2 border-gray-300 text-gray-800 text-sm font-bold rounded-lg hover:bg-gray-200 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all flex items-center gap-2"
         >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
           {t.reviews.copyReply}
         </button>
         <button
           onClick={handleSendToGoogle}
           disabled={sendingToGoogle || !replyText.trim()}
-          className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+          className="px-5 py-2.5 bg-purple-600 text-white text-sm font-bold rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all flex items-center gap-2"
         >
           {sendingToGoogle ? (
             <>
@@ -316,18 +343,8 @@ export default function ReviewReplyForm({
             </>
           ) : (
             <>
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                />
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
               {t.reviews.sendToGoogle}
             </>
@@ -336,18 +353,30 @@ export default function ReviewReplyForm({
         <button
           onClick={handleSaveReply}
           disabled={saving || !replyText.trim()}
-          className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
+          className="px-5 py-2.5 bg-green-600 text-white text-sm font-bold rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transition-all flex items-center gap-2"
         >
-          {saving ? t.common.loading : t.common.save}
+          {saving ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              {t.common.loading}
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              {t.common.save}
+            </>
+          )}
         </button>
       </div>
 
       {status && (
-        <div
-          className={`mt-3 text-sm ${
-            status.type === "success" ? "text-green-600" : "text-red-600"
-          }`}
-        >
+        <div className={`mt-4 p-3 rounded-lg font-medium text-sm ${
+          status.type === "success"
+            ? "bg-green-50 border-2 border-green-200 text-green-800"
+            : "bg-red-50 border-2 border-red-200 text-red-800"
+        }`}>
           {status.message}
         </div>
       )}
