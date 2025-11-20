@@ -82,6 +82,10 @@ export const tr = {
     totalReviews: "Toplam Yorum",
     averageRating: "Ortalama Puan",
     responseRate: "Yanıt Oranı",
+    respondedCount: "Yanıtlanan Yorum",
+    pendingReplies: "Yanıt Bekleyen",
+    newReviews7d: "Son 7 Gün Yeni Yorum",
+    noSyncYet: "Henüz senkron yapılmadı",
     recentReviews: "Son Yorumlar",
     noReviews: "Henüz yorum yok",
     deleteBusiness: "İşletmeyi Sil",
@@ -103,6 +107,10 @@ export const tr = {
     copyReply: "Yanıtı Kopyala",
     editReply: "Yanıtı Düzenle",
     sendReply: "Yanıtı Gönder",
+    sendToGoogle: "Google'a Gönder",
+    sending: "Gönderiliyor...",
+    sentSuccessfully: "Yanıt başarıyla gönderildi!",
+    sendError: "Gönderme hatası",
     viewReply: "Yanıtı Görüntüle",
     hideReply: "Yanıtı Gizle",
     noText: "Yorum metni yok",
@@ -221,7 +229,7 @@ export const tr = {
     reviewCount: "Yorum Sayısı",
     noResults: "Sonuç bulunamadı",
     addThisCompetitor: "Ekle",
-    adding: "Ekleniyor...",
+    addThisCompetitorLoading: "Ekleniyor...",
     performanceTitle: "Performans Özeti",
     performanceSubtitle:
       "Son 30 günde siz ve rakiplerinizin puan ve yorum değişimleri",
@@ -238,6 +246,7 @@ export const tr = {
     ratingTrendSubtitle: "Siz vs. en güçlü rakip",
     you: "Siz",
     competitor: "Rakip",
+    actions: "İşlemler",
     rankingTitle: "Rakip Sıralaması",
     categoriesTitle: "Kategori Bazlı İçgörüler",
     categoriesSubtitle: "Son 30 günde kullanıcıların en çok konuştuğu konular",
@@ -245,6 +254,12 @@ export const tr = {
     categoryPositive: "Pozitif",
     categoryNegative: "Negatif",
     categoryNeutral: "Nötr",
+    topCategorySummary:
+      "Son 30 günde müşteriler en çok {category} hakkında konuştu.",
+    comparisonSubtitle:
+      "Her işletme için puan ve yorum hacmini kıyaslayın.",
+    ratingComparisonTitle: "Puan Karşılaştırması",
+    reviewComparisonTitle: "Yorum Hacmi Karşılaştırması",
   },
 
   // Settings

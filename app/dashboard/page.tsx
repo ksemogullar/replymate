@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/useTranslation";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import ReviewReplyForm from "@/components/dashboard/ReviewReplyForm";
 
 interface Business {
   id: string;
@@ -31,6 +32,9 @@ interface Review {
   author_photo_url: string | null;
   rating: number;
   text: string | null;
+  language: string | null;
+  google_review_id: string | null;
+  business_id: string;
   review_created_at: string;
   has_reply: boolean;
   reply_text: string | null;
@@ -223,6 +227,8 @@ export default function Dashboard() {
   const [generatingAi, setGeneratingAi] = useState(false);
   const [generatedReply, setGeneratedReply] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
+  const [sendingReply, setSendingReply] = useState(false);
+  const [replySuccess, setReplySuccess] = useState(false);
 
   // Analytics
   const [analyticsTimeFilter, setAnalyticsTimeFilter] = useState<7 | 30 | 90>(
@@ -244,8 +250,6 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [addingCompetitor, setAddingCompetitor] = useState(false);
-  const [selectedCompetitor, setSelectedCompetitor] =
-    useState<Competitor | null>(null);
   const [competitorReviews, setCompetitorReviews] = useState<
     CompetitorReview[]
   >([]);
@@ -263,6 +267,35 @@ export default function Dashboard() {
   const currentBusiness = businesses.find((b) => b.id === selectedBusiness);
   const dateLocale =
     locale === "tr" ? "tr-TR" : locale === "en" ? "en-US" : "nl-NL";
+
+  const topCategoryHighlight = useMemo(() => {
+    if (!categoryInsights) return null;
+
+    let candidate: { key: CategoryKey; total: number } | null = null;
+    (
+      Object.entries(categoryInsights.own_categories) as [
+        CategoryKey,
+        CategorySummary,
+      ][]
+    ).forEach(([key, summary]) => {
+      const total = summary.positive + summary.negative + summary.neutral;
+      if (!candidate || total > candidate.total) {
+        candidate = { key, total };
+      }
+    });
+
+    if (!candidate || candidate.total === 0) return null;
+
+    const labelSet = CATEGORY_LABELS[candidate.key];
+    const label =
+      locale === "tr"
+        ? labelSet.tr
+        : locale === "nl"
+          ? labelSet.nl
+          : labelSet.en;
+
+    return { label, total: candidate.total };
+  }, [categoryInsights, locale]);
 
   const loadReviews = useCallback(
     async (businessId: string) => {
@@ -399,7 +432,7 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (searchParams.get("google") === "success") {
+    if (searchParams.get("google") === "connected") {
       setGoogleConnected(true);
       setSyncStatus({
         type: "success",
@@ -761,21 +794,28 @@ export default function Dashboard() {
       setAiError("Yorum metni bulunamadı.");
       return;
     }
+    if (!selectedReview?.id) {
+      setAiError("Yorum bilgisi bulunamadı.");
+      return;
+    }
 
     setGeneratingAi(true);
     setAiError(null);
     setGeneratedReply("");
 
     try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          review: selectedReview.text,
-          language: aiLanguage,
-          tone: aiTone,
-        }),
-      });
+      const response = await fetch(
+        `/api/reviews/${selectedReview.id}/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            language: aiLanguage,
+            tone: aiTone,
+          }),
+        }
+      );
 
       const data = await response.json();
 
@@ -798,6 +838,66 @@ export default function Dashboard() {
       const originalText = generatedReply;
       setGeneratedReply("✓ Kopyalandı!");
       setTimeout(() => setGeneratedReply(originalText), 1000);
+    }
+  };
+
+  const handleSendReplyToGoogle = async () => {
+    if (!selectedReview || !generatedReply || !selectedBusiness) {
+      setAiError("Yanıt veya işletme bilgisi eksik");
+      return;
+    }
+
+    setSendingReply(true);
+    setAiError(null);
+    setReplySuccess(false);
+
+    try {
+      const response = await fetch("/api/extension/post-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          businessId: selectedBusiness,
+          reviewId: selectedReview.google_review_id,
+          replyText: generatedReply,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Yanıt gönderilemedi");
+      }
+
+      // Başarılı - yorumu güncelle
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === selectedReview.id
+            ? {
+                ...r,
+                has_reply: true,
+                reply_text: generatedReply,
+                reply_author: "İşletme Sahibi",
+                replied_at: data.replied_at || new Date().toISOString(),
+              }
+            : r
+        )
+      );
+
+      setReplySuccess(true);
+
+      // 2 saniye sonra modal'ı kapat
+      setTimeout(() => {
+        setAiModalOpen(false);
+        setSelectedReview(null);
+        setGeneratedReply("");
+        setReplySuccess(false);
+      }, 2000);
+    } catch (error: any) {
+      console.error("Send reply error:", error);
+      setAiError(error.message || "Yanıt gönderilirken bir hata oluştu");
+    } finally {
+      setSendingReply(false);
     }
   };
 
@@ -1165,74 +1265,7 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-4">
                 {filteredReviews.map((review) => (
-                  <div
-                    key={review.id}
-                    className="border border-gray-200 rounded-lg p-4"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center text-sm font-semibold text-gray-600 flex-shrink-0">
-                        {review.author_name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-2">
-                          <div>
-                            <p className="font-medium text-gray-900">
-                              {review.author_name}
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <div className="flex">
-                                {Array.from({ length: 5 }).map((_, i) => (
-                                  <span
-                                    key={i}
-                                    className={`text-lg ${i < review.rating ? "text-yellow-400" : "text-gray-300"}`}
-                                  >
-                                    ★
-                                  </span>
-                                ))}
-                              </div>
-                              <span className="text-xs text-gray-500">
-                                {formatDate(review.review_created_at)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <p className="text-sm text-gray-700 mb-3 whitespace-pre-line">
-                          {review.text}
-                        </p>
-
-                        {review.has_reply && review.reply_text && (
-                          <div className="mt-3 ml-4 pl-4 border-l-2 border-gray-200">
-                            <p className="text-xs text-gray-500 mb-1">
-                              {t.reviews.businessResponse}
-                            </p>
-                            <p className="text-sm text-gray-700 whitespace-pre-line">
-                              {review.reply_text}
-                            </p>
-                          </div>
-                        )}
-
-                        <button
-                          onClick={() => handleOpenAiModal(review)}
-                          className="mt-3 px-3 py-1.5 text-sm bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-medium hover:from-purple-700 hover:to-blue-700 flex items-center gap-1.5"
-                        >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M13 10V3L4 14h7v7l9-11h-7z"
-                            />
-                          </svg>
-                          {t.reviews.aiGenerateReply}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <ReviewReplyForm key={review.id} initialReview={review} />
                 ))}
               </div>
             )}
@@ -1937,15 +1970,213 @@ export default function Dashboard() {
         {/* Competitors Tab */}
         {activeTab === "competitors" && currentBusiness && (
           <div className="space-y-6">
-            {/* Metrics Overview */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    {t.competitors.performanceTitle}
-                  </h2>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {t.competitors.performanceTitle}
+                    </h2>
+                    <p className="text-sm text-gray-500">
+                      {t.competitors.performanceSubtitle}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!currentBusiness) return;
+                      setMetricsRefreshing(true);
+                      loadCompetitorMetrics(currentBusiness.id);
+                    }}
+                    className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                    disabled={metricsLoading || metricsRefreshing}
+                  >
+                    {metricsRefreshing
+                      ? t.competitors.refreshing
+                      : t.competitors.refresh}
+                  </button>
+                </div>
+                {metricsLoading ? (
                   <p className="text-sm text-gray-500">
-                    {t.competitors.performanceSubtitle}
+                    {t.competitors.metricsLoading}
+                  </p>
+                ) : metricsError ? (
+                  <p className="text-sm text-rose-500">{metricsError}</p>
+                ) : competitorMetrics ? (
+                  (() => {
+                    const latestPoint =
+                      competitorMetrics.business.time_series.at(-1);
+                    const ownRating =
+                      currentBusiness.rating ?? latestPoint?.avg_rating ?? 0;
+                    const topCompetitor =
+                      competitorMetrics.competitor_rankings[0];
+                    const competitorRating = topCompetitor?.rating ?? 0;
+                    const reviewSum =
+                      competitorMetrics.business.time_series.reduce(
+                        (sum, point) => sum + point.review_count,
+                        0
+                      );
+                    const competitorReviewSum =
+                      competitorMetrics.competitor_series[0]?.data.reduce(
+                        (sum, point) => sum + point.review_count,
+                        0
+                      );
+
+                    return (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="p-4 rounded-xl border border-gray-200">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">
+                            {t.competitors.yourAvgRating}
+                          </p>
+                          <p className="text-3xl font-bold text-gray-900 mt-2">
+                            {ownRating.toFixed(2)}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {t.competitors.lastData}:{" "}
+                            {latestPoint
+                              ? new Date(latestPoint.date).toLocaleDateString(
+                                  dateLocale
+                                )
+                              : t.competitors.noData}
+                          </p>
+                        </div>
+                        <div className="p-4 rounded-xl border border-gray-200">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">
+                            {t.competitors.topCompetitor}
+                          </p>
+                          <p className="text-3xl font-bold text-gray-900 mt-2">
+                            {competitorRating.toFixed(2)}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {topCompetitor?.name || t.competitors.noData}
+                          </p>
+                        </div>
+                        <div className="p-4 rounded-xl border border-gray-200">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">
+                            {t.competitors.reviewVolume}
+                          </p>
+                          <p className="text-3xl font-bold text-gray-900 mt-2">
+                            {reviewSum}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {t.analytics.last30Days}
+                          </p>
+                        </div>
+                        <div className="p-4 rounded-xl border border-gray-200">
+                          <p className="text-xs uppercase tracking-wide text-gray-500">
+                            {t.competitors.nearestCompetitor}
+                          </p>
+                          <p className="text-lg font-semibold text-gray-900 mt-2">
+                            {topCompetitor?.name || t.competitors.noData}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {t.competitors.totalReviews}:{" "}
+                            {topCompetitor?.total_reviews ??
+                              competitorReviewSum ??
+                              0}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {t.competitors.metricsEmpty}
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">
+                      {t.competitors.ratingTrendTitle}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {t.competitors.ratingTrendSubtitle}
+                    </p>
+                  </div>
+                  <div className="flex gap-4 text-xs text-gray-600">
+                    <div className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                      {t.competitors.you}
+                    </div>
+                    {competitorMetrics?.competitor_rankings[0] && (
+                      <div className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-full bg-rose-500"></span>
+                        {`${t.competitors.competitor}: ${competitorMetrics.competitor_rankings[0]?.name ?? ""}`}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {metricsLoading ? (
+                  <p className="text-sm text-gray-500">
+                    {t.competitors.metricsLoading}
+                  </p>
+                ) : competitorMetrics ? (
+                  <div className="w-full overflow-x-auto">
+                    <svg width={600} height={200} className="min-w-full">
+                      <path
+                        d={buildLinePath(
+                          competitorMetrics.business.time_series,
+                          600,
+                          180
+                        )}
+                        stroke="url(#ownLineGradient)"
+                        strokeWidth={3}
+                        fill="none"
+                      />
+                      {competitorMetrics.competitor_series[0] && (
+                        <path
+                          d={buildLinePath(
+                            competitorMetrics.competitor_series[0]?.data || [],
+                            600,
+                            180
+                          )}
+                          stroke="url(#competitorLineGradient)"
+                          strokeWidth={3}
+                          fill="none"
+                        />
+                      )}
+                      <defs>
+                        <linearGradient
+                          id="ownLineGradient"
+                          x1="0"
+                          y1="0"
+                          x2="1"
+                          y2="0"
+                        >
+                          <stop offset="0%" stopColor="#2563eb" />
+                          <stop offset="100%" stopColor="#38bdf8" />
+                        </linearGradient>
+                        <linearGradient
+                          id="competitorLineGradient"
+                          x1="0"
+                          y1="0"
+                          x2="1"
+                          y2="0"
+                        >
+                          <stop offset="0%" stopColor="#f43f5e" />
+                          <stop offset="100%" stopColor="#fb7185" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    {t.competitors.metricsEmpty}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {t.competitors.rankingTitle}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {t.competitors.lastData}
                   </p>
                 </div>
                 <button
@@ -1954,205 +2185,45 @@ export default function Dashboard() {
                     setMetricsRefreshing(true);
                     loadCompetitorMetrics(currentBusiness.id);
                   }}
-                  className="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                  disabled={metricsLoading || metricsRefreshing}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-semibold"
                 >
-                  {metricsRefreshing
-                    ? t.competitors.refreshing
-                    : t.competitors.refresh}
+                  {t.competitors.refresh}
                 </button>
               </div>
-
               {metricsLoading ? (
                 <p className="text-sm text-gray-500">
                   {t.competitors.metricsLoading}
                 </p>
-              ) : metricsError ? (
-                <p className="text-sm text-rose-500">{metricsError}</p>
               ) : competitorMetrics ? (
-                <div className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {(() => {
-                      const latestPoint =
-                        competitorMetrics.business.time_series.at(-1);
-                      const ownRating =
-                        currentBusiness.rating ?? latestPoint?.avg_rating ?? 0;
-                      const topCompetitor =
-                        competitorMetrics.competitor_rankings[0];
-                      const competitorRating = topCompetitor?.rating ?? 0;
-                      const reviewSum =
-                        competitorMetrics.business.time_series.reduce(
-                          (sum, point) => sum + point.review_count,
-                          0
-                        );
-                      const competitorReviewSum =
-                        competitorMetrics.competitor_series[0]?.data.reduce(
-                          (sum, point) => sum + point.review_count,
-                          0
-                        );
-
-                      return (
-                        <>
-                          <div className="p-4 rounded-xl border border-gray-200">
-                            <p className="text-xs uppercase tracking-wide text-gray-500">
-                              {t.competitors.yourAvgRating}
-                            </p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">
-                              {ownRating ? ownRating.toFixed(2) : "—"}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                              {t.competitors.lastData}:{" "}
-                              {latestPoint ? latestPoint.date : "—"}
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-xl border border-gray-200">
-                            <p className="text-xs uppercase tracking-wide text-gray-500">
-                              {t.competitors.topCompetitor}
-                            </p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">
-                              {topCompetitor ? topCompetitor.name : "—"}
-                            </p>
-                            <p className="text-sm text-gray-600">
-                              {topCompetitor?.rating
-                                ? topCompetitor.rating.toFixed(2)
-                                : t.competitors.noData}
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-xl border border-gray-200">
-                            <p className="text-xs uppercase tracking-wide text-gray-500">
-                              {t.competitors.reviewVolume}
-                            </p>
-                            <p className="text-3xl font-bold text-gray-900 mt-1">
-                              {reviewSum}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                              {t.competitors.nearestCompetitor}:{" "}
-                              {competitorReviewSum ?? 0}
-                            </p>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Line Chart */}
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800">
-                          {t.competitors.ratingTrendTitle}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {t.competitors.ratingTrendSubtitle}
-                        </p>
-                      </div>
-                      <div className="flex gap-4 text-xs text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <span className="w-3 h-3 rounded-full bg-blue-500"></span>
-                          {t.competitors.you}
-                        </div>
-                        {competitorMetrics.competitor_rankings[0] && (
-                          <div className="flex items-center gap-1">
-                            <span className="w-3 h-3 rounded-full bg-rose-500"></span>
-                            {`${t.competitors.competitor}: ${competitorMetrics.competitor_rankings[0]?.name ?? ""}`}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="w-full overflow-x-auto">
-                      <svg width={600} height={200} className="min-w-full">
-                        <path
-                          d={buildLinePath(
-                            competitorMetrics.business.time_series,
-                            600,
-                            180
-                          )}
-                          stroke="url(#ownLineGradient)"
-                          strokeWidth={3}
-                          fill="none"
-                        />
-                        {competitorMetrics.competitor_series[0] && (
-                          <path
-                            d={buildLinePath(
-                              competitorMetrics.competitor_series[0]?.data ||
-                                [],
-                              600,
-                              180
-                            )}
-                            stroke="url(#competitorLineGradient)"
-                            strokeWidth={3}
-                            fill="none"
-                          />
-                        )}
-                        <defs>
-                          <linearGradient
-                            id="ownLineGradient"
-                            x1="0"
-                            y1="0"
-                            x2="1"
-                            y2="0"
-                          >
-                            <stop offset="0%" stopColor="#2563eb" />
-                            <stop offset="100%" stopColor="#38bdf8" />
-                          </linearGradient>
-                          <linearGradient
-                            id="competitorLineGradient"
-                            x1="0"
-                            y1="0"
-                            x2="1"
-                            y2="0"
-                          >
-                            <stop offset="0%" stopColor="#f43f5e" />
-                            <stop offset="100%" stopColor="#fb7185" />
-                          </linearGradient>
-                        </defs>
-                      </svg>
-                    </div>
-                  </div>
-
-                  {/* Ranking Table */}
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800 mb-3">
-                      {t.competitors.rankingTitle}
-                    </p>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-gray-500">
-                            <th className="py-2">
-                              {t.competitors.businessName}
-                            </th>
-                            <th className="py-2">{t.competitors.rating}</th>
-                            <th className="py-2">
-                              {t.competitors.totalReviews}
-                            </th>
-                            <th className="py-2">{t.competitors.lastSync}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {competitorMetrics.competitor_rankings.map((item) => (
-                            <tr
-                              key={item.id}
-                              className="border-t text-gray-800"
-                            >
-                              <td className="py-2 font-medium">{item.name}</td>
-                              <td className="py-2">
-                                {item.rating?.toFixed(2) ?? "—"}
-                              </td>
-                              <td className="py-2">{item.total_reviews}</td>
-                              <td className="py-2 text-xs text-gray-500">
-                                {item.last_sync_at
-                                  ? new Date(
-                                      item.last_sync_at
-                                    ).toLocaleDateString(dateLocale)
-                                  : "—"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500">
+                        <th className="py-2">{t.competitors.businessName}</th>
+                        <th className="py-2">{t.competitors.rating}</th>
+                        <th className="py-2">{t.competitors.totalReviews}</th>
+                        <th className="py-2">{t.competitors.lastSync}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {competitorMetrics.competitor_rankings.map((item) => (
+                        <tr key={item.id} className="border-t text-gray-800">
+                          <td className="py-2 font-medium">{item.name}</td>
+                          <td className="py-2">
+                            {item.rating?.toFixed(2) ?? t.competitors.noData}
+                          </td>
+                          <td className="py-2">{item.total_reviews}</td>
+                          <td className="py-2 text-xs text-gray-500">
+                            {item.last_sync_at
+                              ? new Date(item.last_sync_at).toLocaleDateString(
+                                  dateLocale
+                                )
+                              : t.competitors.noData}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               ) : (
                 <p className="text-sm text-gray-500">
@@ -2161,7 +2232,6 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Header with Add Competitor */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-gray-900">
@@ -2170,9 +2240,12 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-500 mt-1">
                   {t.competitors.description}
                 </p>
+                {competitors.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {t.competitors.noCompetitors}
+                  </p>
+                )}
               </div>
-
-              {/* Search and Add Competitor */}
               <div className="space-y-4">
                 <div className="flex gap-3">
                   <input
@@ -2210,14 +2283,12 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
-
-                {/* Search Results */}
                 {searchResults.length > 0 && (
                   <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
                     {searchResults.map((result) => (
                       <div
                         key={result.place_id}
-                        className="p-4 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 flex items-center justify-between"
+                        className="p-4 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="flex-1">
                           <h4 className="font-semibold text-gray-900">
@@ -2234,7 +2305,8 @@ export default function Dashboard() {
                               </span>
                             </div>
                             <span className="text-sm text-gray-500">
-                              {result.total_reviews} yorum
+                              {t.competitors.totalReviews}:{" "}
+                              {result.total_reviews}
                             </span>
                           </div>
                         </div>
@@ -2295,7 +2367,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Category Insights */}
             {categoryInsights && (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-6">
@@ -2313,7 +2384,14 @@ export default function Dashboard() {
                     </span>
                   )}
                 </div>
-
+                {topCategoryHighlight && (
+                  <div className="mb-6 rounded-lg bg-blue-50 border border-blue-100 px-4 py-3 text-sm text-blue-800">
+                    {t.competitors.topCategorySummary.replace(
+                      "{category}",
+                      topCategoryHighlight.label
+                    )}
+                  </div>
+                )}
                 <div className="grid gap-4 md:grid-cols-2">
                   {Object.entries(CATEGORY_LABELS).map(([key, labels]) => {
                     const own =
@@ -2331,25 +2409,29 @@ export default function Dashboard() {
                         competitor.neutral
                       : 0;
 
-                    if (ownTotal === 0 && competitorTotal === 0) {
-                      return null;
-                    }
+                    if (ownTotal === 0 && competitorTotal === 0) return null;
+
+                    const getLabel = () => {
+                      if (locale === "en") return labels.en;
+                      if (locale === "nl") return labels.nl;
+                      return labels.tr;
+                    };
 
                     return (
                       <div
                         key={key}
-                        className="border border-gray-200 rounded-xl p-4"
+                        className="border border-gray-200 rounded-lg p-4"
                       >
                         <div className="flex items-center justify-between mb-3">
-                          <p className="font-semibold text-gray-900">
-                            {labels[locale as "tr" | "en" | "nl"]}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {ownTotal} {t.competitors.you} • {competitorTotal}{" "}
-                            {t.competitors.competitor}
-                          </p>
+                          <h4 className="text-sm font-semibold text-gray-800">
+                            {getLabel()}
+                          </h4>
+                          <div className="text-xs text-gray-500">
+                            {ownTotal + competitorTotal}{" "}
+                            {t.analytics.reviewVolume}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="grid grid-cols-3 gap-3 text-xs text-gray-600">
                           <div className="p-2 rounded-lg bg-green-50 text-green-700">
                             <p className="font-semibold">
                               {t.competitors.categoryPositive}
@@ -2391,42 +2473,43 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Competitors Comparison */}
             {competitors.length > 0 ? (
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-6">
-                  Karşılaştırmalı Analiz
-                </h3>
-
-                {/* Comparison Table */}
+                <div className="mb-6">
+                  <h3 className="text-lg font-bold text-gray-900">
+                    {t.competitors.comparison}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {t.competitors.comparisonSubtitle}
+                  </p>
+                </div>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-gray-200">
                         <th className="text-left py-3 px-4 font-semibold text-gray-700">
-                          İşletme
+                          {t.competitors.businessName}
                         </th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">
-                          Puan
+                          {t.competitors.rating}
                         </th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">
-                          Toplam Yorum
+                          {t.competitors.totalReviews}
                         </th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">
-                          Son Senkronizasyon
+                          {t.competitors.lastSync}
                         </th>
                         <th className="text-center py-3 px-4 font-semibold text-gray-700">
-                          İşlemler
+                          {t.competitors.actions}
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {/* Your Business */}
                       <tr className="border-b border-gray-100 bg-blue-50">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
                             <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
-                              SİZ
+                              {t.competitors.you}
                             </span>
                             <span className="font-semibold text-gray-900">
                               {currentBusiness.name}
@@ -2437,7 +2520,8 @@ export default function Dashboard() {
                           <div className="flex items-center justify-center gap-1">
                             <span className="text-yellow-400">★</span>
                             <span className="font-semibold text-gray-900">
-                              {currentBusiness.rating?.toFixed(1) || "N/A"}
+                              {currentBusiness.rating?.toFixed(1) ||
+                                t.competitors.noData}
                             </span>
                           </div>
                         </td>
@@ -2448,13 +2532,11 @@ export default function Dashboard() {
                           {currentBusiness.last_sync_at
                             ? new Date(
                                 currentBusiness.last_sync_at
-                              ).toLocaleDateString("tr-TR")
-                            : "Henüz yok"}
+                              ).toLocaleDateString(dateLocale)
+                            : t.competitors.noData}
                         </td>
                         <td className="text-center py-3 px-4">-</td>
                       </tr>
-
-                      {/* Competitors */}
                       {competitors.map((comp) => (
                         <tr
                           key={comp.id}
@@ -2476,7 +2558,8 @@ export default function Dashboard() {
                             <div className="flex items-center justify-center gap-1">
                               <span className="text-yellow-400">★</span>
                               <span className="font-medium text-gray-700">
-                                {comp.rating?.toFixed(1) || "N/A"}
+                                {comp.rating?.toFixed(1) ||
+                                  t.competitors.noData}
                               </span>
                             </div>
                           </td>
@@ -2486,9 +2569,9 @@ export default function Dashboard() {
                           <td className="text-center py-3 px-4 text-sm text-gray-600">
                             {comp.last_sync_at
                               ? new Date(comp.last_sync_at).toLocaleDateString(
-                                  "tr-TR"
+                                  dateLocale
                                 )
-                              : "Henüz yok"}
+                              : t.competitors.noData}
                           </td>
                           <td className="text-center py-3 px-4">
                             <div className="flex items-center justify-center gap-2">
@@ -2526,49 +2609,47 @@ export default function Dashboard() {
                                     setSyncing(false);
                                   }
                                 }}
-                                disabled={syncing}
-                                className="text-blue-600 hover:text-blue-700 text-sm font-medium disabled:opacity-50"
+                                className="text-blue-600 hover:text-blue-700 text-sm font-medium"
                               >
-                                Senkronize
+                                {t.competitors.sync}
                               </button>
+                              <span className="text-gray-300">|</span>
                               <button
                                 onClick={async () => {
-                                  if (
-                                    confirm(
-                                      "Bu rakibi silmek istediğinizden emin misiniz?"
-                                    )
-                                  ) {
-                                    try {
-                                      const response = await fetch(
-                                        `/api/competitors/${comp.id}`,
-                                        {
-                                          method: "DELETE",
-                                        }
-                                      );
-                                      const data = await response.json();
-                                      if (data.success) {
-                                        setCompetitors(
-                                          competitors.filter(
-                                            (c) => c.id !== comp.id
-                                          )
-                                        );
-                                        setSyncStatus({
-                                          type: "success",
-                                          text: "Rakip silindi!",
-                                        });
-                                        setTimeout(
-                                          () => setSyncStatus(null),
-                                          3000
-                                        );
+                                  const confirmed = confirm(
+                                    t.competitors.deleteCompetitorConfirm
+                                  );
+                                  if (!confirmed) return;
+                                  try {
+                                    const response = await fetch(
+                                      `/api/competitors/${comp.id}`,
+                                      {
+                                        method: "DELETE",
                                       }
-                                    } catch (error) {
-                                      console.error("Delete error:", error);
+                                    );
+                                    const data = await response.json();
+                                    if (data.success) {
+                                      setCompetitors(
+                                        competitors.filter(
+                                          (c) => c.id !== comp.id
+                                        )
+                                      );
+                                      setSyncStatus({
+                                        type: "success",
+                                        text: "Rakip kaldırıldı",
+                                      });
+                                      setTimeout(
+                                        () => setSyncStatus(null),
+                                        3000
+                                      );
                                     }
+                                  } catch (error) {
+                                    console.error("Delete error:", error);
                                   }
                                 }}
                                 className="text-red-600 hover:text-red-700 text-sm font-medium"
                               >
-                                Sil
+                                {t.competitors.deleteCompetitor}
                               </button>
                             </div>
                           </td>
@@ -2577,40 +2658,41 @@ export default function Dashboard() {
                     </tbody>
                   </table>
                 </div>
-
-                {/* Visual Comparison */}
                 <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Rating Comparison */}
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-4">
-                      Puan Karşılaştırması
+                      {t.competitors.ratingComparisonTitle}
                     </h4>
                     <div className="space-y-3">
                       {[
-                        currentBusiness,
+                        {
+                          name: currentBusiness.name,
+                          rating: currentBusiness.rating || 0,
+                          isYou: true,
+                        },
                         ...competitors.map((c) => ({
                           name: c.competitor_name,
-                          rating: c.rating,
+                          rating: c.rating || 0,
                           isYou: false,
                         })),
-                      ].map((item: any, index) => {
-                        const rating = item.rating || 0;
-                        const percentage = (rating / 5) * 100;
-                        const isYou = index === 0;
+                      ].map((item, index) => {
+                        const percentage = (item.rating / 5) * 100;
                         return (
-                          <div key={index}>
+                          <div key={`${item.name}-${index}`}>
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-sm font-medium text-gray-700">
-                                {isYou ? `${item.name} (Siz)` : item.name}
+                                {item.isYou
+                                  ? `${item.name} (${t.competitors.you})`
+                                  : item.name}
                               </span>
                               <span className="text-sm font-semibold text-gray-900">
-                                {rating.toFixed(1)}
+                                {item.rating.toFixed(1)}
                               </span>
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                               <div
                                 className={`h-full rounded-full transition-all ${
-                                  isYou
+                                  item.isYou
                                     ? "bg-gradient-to-r from-blue-500 to-blue-600"
                                     : "bg-gradient-to-r from-gray-400 to-gray-500"
                                 }`}
@@ -2622,21 +2704,23 @@ export default function Dashboard() {
                       })}
                     </div>
                   </div>
-
-                  {/* Review Count Comparison */}
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-4">
-                      Yorum Sayısı Karşılaştırması
+                      {t.competitors.reviewComparisonTitle}
                     </h4>
                     <div className="space-y-3">
                       {[
-                        currentBusiness,
+                        {
+                          name: currentBusiness.name,
+                          total_reviews: currentBusiness.total_reviews,
+                          isYou: true,
+                        },
                         ...competitors.map((c) => ({
                           name: c.competitor_name,
                           total_reviews: c.total_reviews,
                           isYou: false,
                         })),
-                      ].map((item: any, index) => {
+                      ].map((item, index) => {
                         const maxReviews = Math.max(
                           currentBusiness.total_reviews,
                           ...competitors.map((c) => c.total_reviews)
@@ -2645,12 +2729,13 @@ export default function Dashboard() {
                           maxReviews > 0
                             ? (item.total_reviews / maxReviews) * 100
                             : 0;
-                        const isYou = index === 0;
                         return (
-                          <div key={index}>
+                          <div key={`${item.name}-${index}`}>
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-sm font-medium text-gray-700">
-                                {isYou ? `${item.name} (Siz)` : item.name}
+                                {item.isYou
+                                  ? `${item.name} (${t.competitors.you})`
+                                  : item.name}
                               </span>
                               <span className="text-sm font-semibold text-gray-900">
                                 {item.total_reviews}
@@ -2659,7 +2744,7 @@ export default function Dashboard() {
                             <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
                               <div
                                 className={`h-full rounded-full transition-all ${
-                                  isYou
+                                  item.isYou
                                     ? "bg-gradient-to-r from-green-500 to-green-600"
                                     : "bg-gradient-to-r from-gray-400 to-gray-500"
                                 }`}
@@ -2679,20 +2764,18 @@ export default function Dashboard() {
                   <span className="text-3xl">🎯</span>
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  Henüz rakip eklenmedi
+                  {t.competitors.noCompetitors}
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Rakiplerinizi ekleyerek performanslarını karşılaştırın
+                  {t.competitors.description}
                 </p>
                 <p className="text-xs text-gray-400">
-                  Yukarıdaki arama kutusunu kullanarak rakip işletme arayabilir
-                  ve ekleyebilirsiniz
+                  {t.competitors.searchCompetitor}
                 </p>
               </div>
             )}
           </div>
         )}
-
         {/* Settings Tab */}
         {activeTab === "settings" && currentBusiness && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -3076,6 +3159,26 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {/* Success Message */}
+              {replySuccess && (
+                <div className="mt-4 rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-700 flex items-center gap-2">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                  {t.reviews.sentSuccessfully}
+                </div>
+              )}
+
               {/* Generated Reply */}
               {generatedReply && (
                 <div className="mt-6">
@@ -3083,25 +3186,56 @@ export default function Dashboard() {
                     <label className="block text-sm font-medium text-gray-700">
                       {t.reviews.generatedReply}
                     </label>
-                    <button
-                      onClick={handleCopyReply}
-                      className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 flex items-center gap-1"
-                    >
-                      <svg
-                        className="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyReply}
+                        className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 flex items-center gap-1"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                        />
-                      </svg>
-                      {t.reviews.copyReply}
-                    </button>
+                        <svg
+                          className="w-3 h-3"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                          />
+                        </svg>
+                        {t.reviews.copyReply}
+                      </button>
+                      <button
+                        onClick={handleSendReplyToGoogle}
+                        disabled={sendingReply || replySuccess}
+                        className="px-3 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        {sendingReply ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            {t.reviews.sending}
+                          </>
+                        ) : (
+                          <>
+                            <svg
+                              className="w-3 h-3"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                              />
+                            </svg>
+                            {t.reviews.sendToGoogle}
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div className="rounded-lg bg-gradient-to-br from-purple-50 to-blue-50 border border-purple-200 p-4">
                     <p className="text-sm text-gray-800 whitespace-pre-line">

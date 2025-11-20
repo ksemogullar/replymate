@@ -82,6 +82,15 @@ export async function GET(request: NextRequest) {
     const tokens = await exchangeCodeForTokens({ code, redirectUri })
     const expiresAt = new Date(Date.now() + (tokens.expires_in ?? 3600) * 1000)
 
+    console.log('✅ Successfully exchanged code for tokens')
+    console.log('Token details:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      tokenType: tokens.token_type,
+      scope: tokens.scope,
+      expiresIn: tokens.expires_in,
+    })
+
     const { data: existingConnection } = await supabase
       .from('google_connections')
       .select('id, refresh_token')
@@ -89,6 +98,12 @@ export async function GET(request: NextRequest) {
       .maybeSingle()
 
     const refreshToken = tokens.refresh_token || existingConnection?.refresh_token || null
+
+    console.log('Saving connection to database:', {
+      userId: user.id,
+      hasRefreshToken: !!refreshToken,
+      expiresAt: expiresAt.toISOString(),
+    })
 
     const { error: upsertError } = await supabase
       .from('google_connections')
@@ -105,10 +120,11 @@ export async function GET(request: NextRequest) {
       )
 
     if (upsertError) {
-      console.error('Google bağlantısı kaydedilemedi:', upsertError)
+      console.error('❌ Google bağlantısı kaydedilemedi:', upsertError)
       return finishWith('google_error=storage_failed')
     }
 
+    console.log('✅ Google connection saved successfully')
     return finishWith('google=connected')
   } catch (error) {
     console.error('Google OAuth callback hatası:', error)

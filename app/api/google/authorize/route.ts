@@ -25,7 +25,12 @@ export async function GET(request: NextRequest) {
 
   const state = randomUUID()
   const redirectUri = `${request.nextUrl.origin}/api/google/callback`
-  const scopes = ['https://www.googleapis.com/auth/business.manage']
+  // Request all necessary Google Business Profile scopes
+  const scopes = [
+    'https://www.googleapis.com/auth/business.manage',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile'
+  ]
 
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth')
   authUrl.searchParams.set('client_id', clientId)
@@ -36,6 +41,9 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set('prompt', 'consent')
   authUrl.searchParams.set('include_granted_scopes', 'true')
   authUrl.searchParams.set('state', state)
+
+  console.log('🔐 Initiating Google OAuth with scopes:', scopes)
+  console.log('📍 Redirect URI:', redirectUri)
 
   const response = NextResponse.redirect(authUrl.toString())
   response.cookies.set('google_oauth_state', `${state}:${user.id}`, {

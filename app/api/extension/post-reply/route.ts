@@ -134,7 +134,21 @@ async function postReplyToGoogle({
   reviewId: string
   replyText: string
 }) {
-  const url = `https://mybusiness.googleapis.com/v4/${locationName}/reviews/${reviewId}/reply`
+  // Extract just the review ID from the full path if needed
+  // reviewId might be like "accounts/XXX/locations/YYY/reviews/ZZZ"
+  // We need just "ZZZ"
+  const reviewIdOnly = reviewId.includes('/reviews/')
+    ? reviewId.split('/reviews/')[1]
+    : reviewId
+
+  const url = `https://mybusiness.googleapis.com/v4/${locationName}/reviews/${reviewIdOnly}/reply`
+
+  console.log('🔗 Posting reply to Google:', {
+    url,
+    originalReviewId: reviewId,
+    extractedReviewId: reviewIdOnly,
+    replyLength: replyText.length,
+  })
 
   const response = await fetch(url, {
     method: 'PUT',
@@ -150,9 +164,16 @@ async function postReplyToGoogle({
   const data = await response.json().catch(() => null)
 
   if (!response.ok) {
+    console.error('❌ Google API Error:', {
+      status: response.status,
+      statusText: response.statusText,
+      error: data?.error,
+      url,
+    })
     throw new Error(data?.error?.message || 'Could not post reply to Google')
   }
 
+  console.log('✅ Reply posted successfully to Google')
   return data
 }
 
